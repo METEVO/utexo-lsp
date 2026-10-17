@@ -617,7 +617,7 @@ type LightningSendUpdate struct {
 	Enqueue AsyncOutboxAction
 }
 
-// --- METEVO USDm sell flow --------------------------------------------------
+// --- METEVO USDM sell flow --------------------------------------------------
 
 type MetevoBuyRequest struct {
 	USDAmount uint64 `json:"usd_amount"`

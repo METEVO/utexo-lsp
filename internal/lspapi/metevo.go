@@ -42,7 +42,7 @@ func (a *API) handleMetevoBootstrap(w http.ResponseWriter, r *http.Request) {
 
 	ticker := strings.TrimSpace(r.URL.Query().Get("ticker"))
 	if ticker == "" {
-		ticker = "USDm"
+		ticker = "USDM"
 	}
 	name := ticker + " Metered Dollar"
 
