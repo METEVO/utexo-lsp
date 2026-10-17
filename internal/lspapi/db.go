@@ -63,6 +63,9 @@ type Store interface {
 	UpdateOnchainStatus(ctx context.Context, id int64, status, lastErr string) error
 	UpdateLightningStatus(ctx context.Context, id int64, status, lastErr string) error
 	UpdateLightningDelivery(ctx context.Context, id int64, u LightningDeliveryUpdate) error
+	InsertMetevoOrder(ctx context.Context, order MetevoOrder) error
+	LoadMetevoOrderByPaymentHash(ctx context.Context, paymentHash string) (MetevoOrder, error)
+	AdvanceMetevoOrder(ctx context.Context, paymentHash string, from []string, to MetevoOrderStatus, lastErr string) (bool, error)
 }
 
 // LightningDeliveryUpdate is the retry bookkeeping; only Status is required.
@@ -157,6 +160,18 @@ func (s *SQLStore) pingAndMigrate(ctx context.Context) error {
 			ALTER TABLE lightning_receive_mappings ADD COLUMN IF NOT EXISTS delivery_attempts BIGINT NOT NULL DEFAULT 0;
 			ALTER TABLE lightning_receive_mappings ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ;
 			ALTER TABLE lnaddr_accounts ADD COLUMN IF NOT EXISTS payout_asset_id TEXT;
+			CREATE TABLE IF NOT EXISTS metevo_orders (
+				id BIGSERIAL PRIMARY KEY,
+				payment_hash TEXT NOT NULL UNIQUE,
+				usd_amount BIGINT NOT NULL,
+				asset_amount BIGINT NOT NULL,
+				amount_msat BIGINT NOT NULL,
+				invoice TEXT NOT NULL,
+				status TEXT NOT NULL,
+				last_error TEXT NULL,
+				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);
 		`)
 		return err
 	}
@@ -286,6 +301,18 @@ func (s *SQLStore) pingAndMigrate(ctx context.Context) error {
 			created_at INTEGER NOT NULL,
 			expires_at INTEGER NULL,
 			inserted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE IF NOT EXISTS metevo_orders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			payment_hash TEXT NOT NULL UNIQUE,
+			usd_amount INTEGER NOT NULL,
+			asset_amount INTEGER NOT NULL,
+			amount_msat INTEGER NOT NULL,
+			invoice TEXT NOT NULL,
+			status TEXT NOT NULL,
+			last_error TEXT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 	`)
 	if err != nil {
@@ -676,6 +703,18 @@ func wrapErr(msg string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s: %w", msg, err)
+}
+
+// isUniqueViolation matches the two drivers' unique-constraint errors loosely —
+// the code path only needs "an identical row is already there".
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "unique violation") ||
+		strings.Contains(msg, "duplicate key")
 }
 
 func (s *SQLStore) tryAddColumnSQLite(ctx context.Context, table, columnDef string) error {

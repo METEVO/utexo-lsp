@@ -616,3 +616,66 @@ type LightningSendUpdate struct {
 	// Enqueue, when set, writes an outbox job in the same transaction.
 	Enqueue AsyncOutboxAction
 }
+
+// --- METEVO USDm sell flow --------------------------------------------------
+
+type MetevoBuyRequest struct {
+	USDAmount uint64 `json:"usd_amount"`
+}
+
+type MetevoBuyResponse struct {
+	PaymentHash string `json:"payment_hash"`
+	Invoice     string `json:"invoice"`
+	AmountMsat  uint64 `json:"amount_msat"`
+	Sats        uint64 `json:"sats"`
+	USDAmount   uint64 `json:"usd_amount"`
+	AssetID     string `json:"asset_id"`
+	AssetAmount uint64 `json:"asset_amount"`
+	SatsPerUSD  uint64 `json:"sats_per_usd"`
+	ExpiresAt   int64  `json:"expires_at"`
+}
+
+type MetevoClaimRequest struct {
+	PaymentHash     string `json:"payment_hash"`
+	PaymentPreimage string `json:"payment_preimage,omitempty"`
+	RGBInvoice      string `json:"rgb_invoice"`
+}
+
+type MetevoClaimResponse struct {
+	PaymentHash string `json:"payment_hash"`
+	AssetID     string `json:"asset_id"`
+	AssetAmount uint64 `json:"asset_amount"`
+	Status      string `json:"status"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+type MetevoBootstrapResponse struct {
+	AssetID   string `json:"asset_id"`
+	Ticker    string `json:"ticker"`
+	Name      string `json:"name"`
+	Precision int    `json:"precision"`
+	Issued    uint64 `json:"issued"`
+	Config    string `json:"config"`
+}
+
+type MetevoOrderStatus string
+
+const (
+	metevoOrderStatusPending    MetevoOrderStatus = "pending"
+	metevoOrderStatusPaid       MetevoOrderStatus = "paid"
+	metevoOrderStatusDelivering MetevoOrderStatus = "delivering"
+	metevoOrderStatusDelivered  MetevoOrderStatus = "delivered"
+)
+
+type MetevoOrder struct {
+	ID          int64
+	PaymentHash string
+	USDAmount   uint64
+	AssetAmount uint64
+	AmountMsat  uint64
+	Invoice     string
+	Status      MetevoOrderStatus
+	LastError   *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}

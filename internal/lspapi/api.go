@@ -38,6 +38,9 @@ func (a *API) routes() http.Handler {
 	mux.HandleFunc("POST /internal/async_order/claimable", a.handleInternalInboundInvoiceClaimable)
 	mux.HandleFunc("POST /internal/async_order/payment_sent", a.handleInternalAsyncOrderPaymentSent)
 	mux.HandleFunc("POST /internal/async_order/new", a.handleInternalAsyncOrderNew)
+	mux.HandleFunc("POST /metevo/bootstrap", a.handleMetevoBootstrap)
+	mux.HandleFunc("POST /metevo/buy", a.handleMetevoBuy)
+	mux.HandleFunc("POST /metevo/claim", a.handleMetevoClaim)
 	return mux
 }
 
