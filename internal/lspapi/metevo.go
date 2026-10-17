@@ -44,7 +44,7 @@ func (a *API) handleMetevoBootstrap(w http.ResponseWriter, r *http.Request) {
 	if ticker == "" {
 		ticker = "USDM"
 	}
-	name := ticker + " Metered Dollar"
+	name := ticker + " Metevo Dollar"
 
 	listed, err := a.lspClient.ListAssets(ctx, node_client.ListAssetsRequest{
 		FilterAssetSchemas: []string{"Ifa", "Nia"},
