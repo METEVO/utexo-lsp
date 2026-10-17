@@ -101,8 +101,10 @@ type Config struct {
 	UtxoFeeRate      uint64
 	UtxoSkipSync     bool
 
-	MetevoUSDSatsRate   uint64
-	MetevoInvoiceExpiry time.Duration
+	MetevoUSDSatsRate       uint64
+	MetevoInvoiceExpiry     time.Duration
+	MetevoBootstrapUtxoNum  uint8
+	MetevoBootstrapUtxoSize uint32
 }
 
 func LoadConfig() Config {
@@ -158,8 +160,10 @@ func LoadConfig() Config {
 		UtxoFeeRate:                 uint64(intOrDefault("UTXO_FEE_RATE", 1)),
 		UtxoSkipSync:                boolOrDefault("UTXO_SKIP_SYNC", false),
 
-		MetevoUSDSatsRate:   uint64(intOrDefault("METEVO_USD_SATS_RATE", 3000)),
-		MetevoInvoiceExpiry: durationOrDefault("METEVO_INVOICE_EXPIRY", 10*time.Minute),
+		MetevoUSDSatsRate:       uint64(intOrDefault("METEVO_USD_SATS_RATE", 3000)),
+		MetevoInvoiceExpiry:     durationOrDefault("METEVO_INVOICE_EXPIRY", 10*time.Minute),
+		MetevoBootstrapUtxoNum:  uint8(intOrDefault("METEVO_BOOTSTRAP_UTXO_NUM", 2)),
+		MetevoBootstrapUtxoSize: uint32(intOrDefault("METEVO_BOOTSTRAP_UTXO_SIZE", 30010)),
 	}
 
 	if cfg.LightningAddressMinSendableMsat < cfg.MinAmtMsat {

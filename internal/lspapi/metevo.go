@@ -62,8 +62,14 @@ func (a *API) handleMetevoBootstrap(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	num := uint8(5)
-	utxoSize := uint32(32_000)
+	num := a.cfg.MetevoBootstrapUtxoNum
+	if num == 0 {
+		num = 2
+	}
+	utxoSize := a.cfg.MetevoBootstrapUtxoSize
+	if utxoSize == 0 {
+		utxoSize = 30010
+	}
 	if err := a.lspClient.CreateUtxos(ctx, node_client.CreateUtxosRequest{
 		UpTo:     true,
 		Num:      &num,
