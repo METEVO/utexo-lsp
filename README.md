@@ -1,8 +1,44 @@
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/METEVO/metevo-app/main/src/assets/logo_lockup_dark.svg" alt="METEVO" height="72" />
+<!-- Project logo slot: add the project-specific logo next to the METEVO lockup. -->
+
+# utexo-lsp (METEVO fork)
+
+**Lightning Service Provider for RGB assets, extended with the METEVO USDm buy/sell routes**
+
+![Status](https://img.shields.io/badge/status-hackathon%20build-orange)
+![Network](https://img.shields.io/badge/network-regtest%20%7C%20signet-blue)
+![Go](https://img.shields.io/badge/Go-LSP-00ADD8?logo=go)
+![RGB](https://img.shields.io/badge/RGB-Lightning-8A2BE2)
+![License](https://img.shields.io/badge/license-not%20specified-lightgrey)
+
+</div>
+
+---
+## 🚀 Overview / Project Summary
+
+METEVO's fork of the UTEXO LSP. On top of the upstream channel provisioning and RGB transfer API it adds the `/metevo/*` routes (USDm buy and sell, invoice relay between phones) that the METEVO wallet uses. Upstream: [UTEXO-Protocol/utexo-lsp](https://github.com/UTEXO-Protocol/utexo-lsp).
+
+## 📱 Hackathon Testing & Quick Start Guide
+
+The original setup and testing guide is kept verbatim below, in **Original Documentation → Run locally** and **Manual flow tests**. The end-to-end two-phone test on regtest lives in the app README: [METEVO/metevo-app → Run it: two phones on a local regtest network](https://github.com/METEVO/metevo-app#-hackathon-testing--quick-start-guide).
+
+## ⚠️ Known Limitations & Architectural Constraints
+
+> [!WARNING]
+> These constraints apply to the hackathon build.
+
+- **No Offline Support.** We could not run the RGB Lightning nodes directly inside the smartphone during the hackathon, because of technical and architectural constraints: the on-device node (WDK RGB Lightning in a Bare worklet) does not run reliably on Android yet. Each phone therefore talks to its own rgb-lightning-node server over REST (`EXPO_PUBLIC_WALLET_MODE=remote`) and needs a connection to it; when the node is unreachable the app shows the last known balances and disables payments until it is back.
+- **No Swap Support.** Swap functionality is not implemented yet. Future work: connect the LSP (Lightning Service Provider, our `utexo-lsp` fork) to the swap mechanism, so USDm and BTC can be swapped over the same channels.
+
+## 📚 Original Documentation
+
 # utexo-lsp
 
 POC bridge API for RGB + Lightning LSP workflows.
 
-## Table of contents
+### Table of contents
 
 - [Overview](#overview)
 - [Endpoints](#endpoints)
@@ -15,7 +51,7 @@ POC bridge API for RGB + Lightning LSP workflows.
 - [Automation script](#automation-script)
 - [Troubleshooting](#troubleshooting)
 
-## Overview
+### Overview
 
 This service exposes API endpoints for two flows:
 
@@ -24,7 +60,7 @@ This service exposes API endpoints for two flows:
 - `lightning_send`: user provides a third party's BOLT11 -> service creates a HODL invoice carrying that invoice's payment hash -> once the user pays it, service executes `sendpayment` to the third party and claims the held HTLC with the preimage it gets back
 - `lightning_address`: user provides `username@domain` -> service serves LNURL-pay discovery and callback for a DB-backed account, with haiku handles minted once and persisted per `peer_pubkey`
 
-## Endpoints
+### Endpoints
 
 - `GET /health`
 - `GET /get_info`
@@ -35,7 +71,7 @@ This service exposes API endpoints for two flows:
 - `POST /lightning_send`
 - `GET /lightning_send/{payment_hash}`
 
-## `GET /get_info`
+### `GET /get_info`
 
 Public discovery: LSP policy and the node's connection details, nothing that
 varies with operational state. Design notes in `docs/get-info-redesign.md`.
@@ -85,9 +121,9 @@ Contract:
 Returns `503` while the node identity has not been cached yet (node locked or
 unreachable at startup and since).
 
-## Request examples
+### Request examples
 
-### `POST /onchain_send`
+#### `POST /onchain_send`
 
 ```json
 {
@@ -109,7 +145,7 @@ Validation rules:
 - `lninvoice.expiry_sec` must match decoded RGB remaining lifetime (within tolerance)
 - if `lninvoice.expiry_sec` is omitted/zero, service auto-fills from RGB remaining lifetime
 
-### `POST /lightning_receive`
+#### `POST /lightning_receive`
 
 ```json
 {
@@ -133,7 +169,7 @@ Validation and normalization:
 - unsupported assignment values are rejected
 - `duration_seconds` is validated against LN remaining lifetime; if missing/zero, auto-filled from decoded LN invoice
 
-### `POST /lightning_send`
+#### `POST /lightning_send`
 
 Pays a third party's BOLT11 out of an asset the caller does not hold. The route
 returns `404` unless `LIGHTNING_SEND_ENABLED=1`.
@@ -187,7 +223,7 @@ The HODL invoice never outlives the invoice it funds, and inherits
 `APAY_INBOUND_INVOICE_EXPIRY` and `APAY_INBOUND_MIN_FINAL_CLTV_EXPIRY_DELTA` —
 the inbound leg is the same thing APay's is.
 
-### `GET /lightning_send/{payment_hash}`
+#### `GET /lightning_send/{payment_hash}`
 
 ```json
 { "payment_hash": "a24672c1...", "status": "settled" }
@@ -205,7 +241,7 @@ was refunded without waiting for CLTV expiry. They differ in whether the deliver
 leg may have been paid: `cancelled` is a delivery the node reported failed,
 `failed` is a relay refused before delivery (most often the claim deadline).
 
-### `GET /.well-known/lnurlp/{username}`
+#### `GET /.well-known/lnurlp/{username}`
 
 Returns LNURL-pay discovery metadata for a Lightning Address account stored in `lnaddr_accounts`.
 
@@ -215,7 +251,7 @@ Example:
 curl -s http://127.0.0.1:8080/.well-known/lnurlp/txalkan
 ```
 
-### `GET /pay/callback/{username}?amount=<msat>`
+#### `GET /pay/callback/{username}?amount=<msat>`
 
 Returns a BOLT11 invoice for the requested amount in millisatoshis.
 The callback includes the LNURL metadata hash as `description_hash` in the underlying `/lninvoice` request, which is required by LUD-06 so the invoice `h` tag matches the metadata string.
@@ -227,7 +263,7 @@ Example:
 curl -s "http://127.0.0.1:8080/pay/callback/txalkan?amount=3000000"
 ```
 
-## Cron jobs
+### Cron jobs
 
 Runs every `CRON_EVERY` (default `30s`):
 
@@ -239,7 +275,7 @@ Runs every `CRON_EVERY` (default `30s`):
 6. Drain the async outbox: request and pay APay outbound legs, and for
    `lightning_send`, pay the delivery leg and then claim the held inbound HTLC.
 
-## Method mapping and transfer status model
+### Method mapping and transfer status model
 
 This POC maps `rgb-lightning-node` routes:
 
@@ -270,7 +306,7 @@ For deterministic tracking of `lightning_receive`, persist:
 - `asset_id`
 - `expiration_timestamp` (`rgb_expires_at`)
 
-## Configuration
+### Configuration
 
 Core env vars:
 
@@ -360,7 +396,7 @@ requiring them would force this LSP to be the issuer of the payout asset.
 Consequence: the payer trusts the operator for the asset and the amount of the
 outbound leg (the payment hash is shared between the legs, the amount is not).
 
-## Run locally
+### Run locally
 
 From project root:
 
@@ -380,9 +416,9 @@ Health check:
 curl -s http://127.0.0.1:8080/health
 ```
 
-## Manual flow tests
+### Manual flow tests
 
-### 1) `lightning_receive` (`ln -> rgb -> sendpayment`)
+#### 1) `lightning_receive` (`ln -> rgb -> sendpayment`)
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/lightning_receive \
@@ -407,7 +443,7 @@ sqlite3 utexo_lsp.db "select id,status,rgb_asset_id,batch_transfer_idx,created_a
 
 Expected: `pending_rgb -> completed` (or `failed` / `expired`).
 
-### 2) `onchain_send` (`rgb -> ln -> sendrgb`)
+#### 2) `onchain_send` (`rgb -> ln -> sendrgb`)
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/onchain_send \
@@ -429,7 +465,7 @@ sqlite3 utexo_lsp.db "select id,status,created_at from onchain_send_mappings ord
 
 Expected: `pending_ln -> completed` (or `failed` / `expired`).
 
-## Automation script
+### Automation script
 
 Use [`./scripts/poc_flow.sh`](./scripts/poc_flow.sh).
 
@@ -527,7 +563,7 @@ LN_EXPIRY_SEC=3600 \
 ./scripts/poc_flow.sh sdk-client-smoke
 ```
 
-## Troubleshooting
+### Troubleshooting
 
 - `lightning_receive` not completing:
   - inspect `POST /refreshtransfers` and `POST /listtransfers`
