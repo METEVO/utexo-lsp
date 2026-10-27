@@ -66,6 +66,10 @@ type Store interface {
 	InsertMetevoOrder(ctx context.Context, order MetevoOrder) error
 	LoadMetevoOrderByPaymentHash(ctx context.Context, paymentHash string) (MetevoOrder, error)
 	AdvanceMetevoOrder(ctx context.Context, paymentHash string, from []string, to MetevoOrderStatus, lastErr string) (bool, error)
+	InsertInvoiceRelayRequest(ctx context.Context, record invoiceRelayRecord) error
+	LoadInvoiceRelayRequest(ctx context.Context, requestID string) (invoiceRelayRecord, error)
+	ListPendingInvoiceRelayRequests(ctx context.Context, recipientPubkey string, now time.Time) ([]invoiceRelayRecord, error)
+	AnswerInvoiceRelayRequest(ctx context.Context, requestID, recipientPubkey, status, invoice, paymentHash string, now time.Time) (bool, error)
 }
 
 // LightningDeliveryUpdate is the retry bookkeeping; only Status is required.
@@ -172,6 +176,21 @@ func (s *SQLStore) pingAndMigrate(ctx context.Context) error {
 				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 				updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 			);
+			CREATE TABLE IF NOT EXISTS metevo_invoice_requests (
+				request_id TEXT PRIMARY KEY,
+				sender_pubkey TEXT NULL,
+				recipient_pubkey TEXT NOT NULL,
+				usd_amount BIGINT NOT NULL,
+				asset_id TEXT NULL,
+				status TEXT NOT NULL,
+				invoice TEXT NULL,
+				payment_hash TEXT NULL,
+				expires_at BIGINT NOT NULL,
+				created_at BIGINT NOT NULL,
+				answered_at BIGINT NULL
+			);
+			CREATE INDEX IF NOT EXISTS metevo_invoice_requests_inbox
+				ON metevo_invoice_requests (recipient_pubkey, status, expires_at);
 		`)
 		return err
 	}
@@ -314,6 +333,21 @@ func (s *SQLStore) pingAndMigrate(ctx context.Context) error {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE TABLE IF NOT EXISTS metevo_invoice_requests (
+			request_id TEXT PRIMARY KEY,
+			sender_pubkey TEXT NULL,
+			recipient_pubkey TEXT NOT NULL,
+			usd_amount INTEGER NOT NULL,
+			asset_id TEXT NULL,
+			status TEXT NOT NULL,
+			invoice TEXT NULL,
+			payment_hash TEXT NULL,
+			expires_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL,
+			answered_at INTEGER NULL
+		);
+		CREATE INDEX IF NOT EXISTS metevo_invoice_requests_inbox
+			ON metevo_invoice_requests (recipient_pubkey, status, expires_at);
 	`)
 	if err != nil {
 		return err

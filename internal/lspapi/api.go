@@ -41,6 +41,10 @@ func (a *API) routes() http.Handler {
 	mux.HandleFunc("POST /metevo/bootstrap", a.handleMetevoBootstrap)
 	mux.HandleFunc("POST /metevo/buy", a.handleMetevoBuy)
 	mux.HandleFunc("POST /metevo/claim", a.handleMetevoClaim)
+	mux.HandleFunc("POST /metevo/invoice-request", a.handleInvoiceRelayRequest)
+	mux.HandleFunc("POST /metevo/invoice-response", a.handleInvoiceRelayResponse)
+	mux.HandleFunc("GET /metevo/invoice-inbox", a.handleInvoiceRelayInbox)
+	mux.HandleFunc("POST /metevo/invoice-answer", a.handleInvoiceRelayAnswer)
 	return mux
 }
 
