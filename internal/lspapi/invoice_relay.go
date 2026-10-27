@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -33,6 +34,10 @@ const (
 	maxInvoiceRelayUSD        = 1_000_000
 	maxInvoiceRelayAssetID    = 200
 	maxInvoiceRelayInvoiceLen = 4096
+	maxInvoiceRelayBodyBytes  = 64 << 10
+	// The inbox is a UI list, not an export: cap one poll so a spammer
+	// cannot make the recipient app parse an unbounded body.
+	maxInvoiceRelayInboxRows = 50
 )
 
 var errInvoiceRelayNotFound = errors.New("invoice relay request not found")
@@ -122,6 +127,7 @@ func (a *API) handleInvoiceRelayRequest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxInvoiceRelayBodyBytes)
 	var req InvoiceRelayRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -175,7 +181,8 @@ func (a *API) handleInvoiceRelayRequest(w http.ResponseWriter, r *http.Request) 
 	ctx, cancel := context.WithTimeout(r.Context(), a.cfg.HTTPTimeout)
 	defer cancel()
 	if err := a.db.InsertInvoiceRelayRequest(ctx, record); err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("error persisting invoice request: %v", err))
+		log.Printf("invoice relay: insert request: %v", err)
+		writeErr(w, http.StatusInternalServerError, "could not store the invoice request")
 		return
 	}
 
@@ -191,6 +198,7 @@ func (a *API) handleInvoiceRelayResponse(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxInvoiceRelayBodyBytes)
 	var req InvoiceRelayPollRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -210,7 +218,8 @@ func (a *API) handleInvoiceRelayResponse(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("error loading invoice request: %v", err))
+		log.Printf("invoice relay: load request: %v", err)
+		writeErr(w, http.StatusInternalServerError, "could not load the invoice request")
 		return
 	}
 
@@ -239,7 +248,8 @@ func (a *API) handleInvoiceRelayInbox(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	records, err := a.db.ListPendingInvoiceRelayRequests(ctx, pubkey, time.Now())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("error listing invoice requests: %v", err))
+		log.Printf("invoice relay: list requests: %v", err)
+		writeErr(w, http.StatusInternalServerError, "could not list the invoice requests")
 		return
 	}
 
@@ -262,6 +272,7 @@ func (a *API) handleInvoiceRelayAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxInvoiceRelayBodyBytes)
 	var req InvoiceRelayAnswer
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -304,7 +315,8 @@ func (a *API) handleInvoiceRelayAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("error loading invoice request: %v", err))
+		log.Printf("invoice relay: load request: %v", err)
+		writeErr(w, http.StatusInternalServerError, "could not load the invoice request")
 		return
 	}
 	if record.RecipientPubkey != pubkey {
@@ -322,7 +334,8 @@ func (a *API) handleInvoiceRelayAnswer(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := a.db.AnswerInvoiceRelayRequest(ctx, requestID, pubkey, status, invoice, paymentHash, time.Now())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("error saving invoice answer: %v", err))
+		log.Printf("invoice relay: save answer: %v", err)
+		writeErr(w, http.StatusInternalServerError, "could not store the invoice answer")
 		return
 	}
 	if !updated {
@@ -396,6 +409,7 @@ func (s *SQLStore) ListPendingInvoiceRelayRequests(ctx context.Context, recipien
 		FROM metevo_invoice_requests
 		WHERE recipient_pubkey = ? AND status = ? AND expires_at > ?
 		ORDER BY created_at ASC
+		LIMIT ?
 	`
 	if s.driver == "postgres" {
 		query = `
@@ -404,9 +418,11 @@ func (s *SQLStore) ListPendingInvoiceRelayRequests(ctx context.Context, recipien
 			FROM metevo_invoice_requests
 			WHERE recipient_pubkey = $1 AND status = $2 AND expires_at > $3
 			ORDER BY created_at ASC
+			LIMIT $4
 		`
 	}
-	rows, err := s.db.QueryContext(ctx, query, recipientPubkey, invoiceRelayPending, now.UnixMilli())
+	rows, err := s.db.QueryContext(
+		ctx, query, recipientPubkey, invoiceRelayPending, now.UnixMilli(), maxInvoiceRelayInboxRows)
 	if err != nil {
 		return nil, err
 	}
