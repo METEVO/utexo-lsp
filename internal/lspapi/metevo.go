@@ -282,10 +282,31 @@ func (a *API) handleMetevoClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := a.db.AdvanceMetevoOrder(ctx, paymentHash,
+	transitioned, err := a.db.AdvanceMetevoOrder(ctx, paymentHash,
 		[]string{string(metevoOrderStatusPending), string(metevoOrderStatusPaid)},
-		metevoOrderStatusDelivering, ""); err != nil {
+		metevoOrderStatusDelivering, "")
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !transitioned {
+		// Another claim already owns this transition (or the order moved on).
+		// Only the caller that won it may deliver the RGB assignment.
+		current, loadErr := a.db.LoadMetevoOrderByPaymentHash(ctx, paymentHash)
+		if loadErr != nil {
+			writeErr(w, http.StatusInternalServerError, loadErr.Error())
+			return
+		}
+		if current.Status == metevoOrderStatusDelivered {
+			writeJSON(w, http.StatusOK, MetevoClaimResponse{
+				PaymentHash: current.PaymentHash,
+				AssetID:     a.metevoAssetID(),
+				AssetAmount: current.AssetAmount,
+				Status:      string(current.Status),
+			})
+			return
+		}
+		writeErr(w, http.StatusConflict, "this claim is already being delivered")
 		return
 	}
 

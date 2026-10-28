@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 )
@@ -99,26 +98,49 @@ func (s *SQLStore) AdvanceMetevoOrder(ctx context.Context, paymentHash string, f
 	}
 	paymentHash = strings.ToLower(strings.TrimSpace(paymentHash))
 
-	current, err := s.LoadMetevoOrderByPaymentHash(ctx, paymentHash)
-	if err != nil {
-		return false, err
+	statuses := make([]string, 0, len(from))
+	for _, status := range from {
+		if status = strings.TrimSpace(status); status != "" {
+			statuses = append(statuses, status)
+		}
 	}
-	currentStatus := string(current.Status)
-	if !slices.Contains(from, currentStatus) {
+	if len(statuses) == 0 {
 		return false, nil
 	}
 
+	// One conditional UPDATE: the row moves only while it is still in one of
+	// the expected states, so exactly one racing caller can win. A separate
+	// read followed by an update let two callers both believe they had
+	// transitioned, and both paid out.
+	updatedAt := "CURRENT_TIMESTAMP"
+	statusPlaceholder, errorPlaceholder := "?", "?"
+	paymentHashPlaceholder := "?"
 	if s.driver == "postgres" {
-		_, err = s.db.ExecContext(ctx, `
-			UPDATE metevo_orders SET status=$1, last_error=$2, updated_at=NOW() WHERE payment_hash=$3 AND status=$4
-		`, string(to), nullIfEmpty(lastErr), paymentHash, currentStatus)
-	} else {
-		_, err = s.db.ExecContext(ctx, `
-			UPDATE metevo_orders SET status=?, last_error=?, updated_at=CURRENT_TIMESTAMP WHERE payment_hash=? AND status=?
-		`, string(to), nullIfEmpty(lastErr), paymentHash, currentStatus)
+		updatedAt = "NOW()"
+		statusPlaceholder, errorPlaceholder, paymentHashPlaceholder = "$1", "$2", "$3"
 	}
+	args := []any{string(to), nullIfEmpty(lastErr), paymentHash}
+	placeholders := make([]string, len(statuses))
+	for i, status := range statuses {
+		args = append(args, status)
+		if s.driver == "postgres" {
+			placeholders[i] = fmt.Sprintf("$%d", len(args))
+		} else {
+			placeholders[i] = "?"
+		}
+	}
+
+	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE metevo_orders SET status=%s, last_error=%s, updated_at=%s
+		WHERE payment_hash=%s AND status IN (%s)
+	`, statusPlaceholder, errorPlaceholder, updatedAt, paymentHashPlaceholder,
+		strings.Join(placeholders, ", ")), args...)
 	if err != nil {
 		return false, err
 	}
-	return true, nil
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
 }
