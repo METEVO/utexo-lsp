@@ -1274,7 +1274,7 @@ func (a *API) monitorOnchainSend(ctx context.Context) error {
 	for _, r := range recs {
 		if r.LNExpiresAt != nil && time.Now().UTC().After(*r.LNExpiresAt) {
 			a.cancelLNInvoice(ctx, r.LspLNInvoice)
-			_ = a.db.UpdateOnchainStatus(ctx, r.ID, statusExpired, "ln invoice expired")
+			a.persistOnchainStatus(ctx, r.ID, statusExpired, "ln invoice expired")
 			continue
 		}
 
@@ -1287,15 +1287,15 @@ func (a *API) monitorOnchainSend(ctx context.Context) error {
 		switch normalizeStatus(status) {
 		case "succeeded":
 			if err := a.sendRGBByInvoice(ctx, r.UserRGBInvoice); err != nil {
-				_ = a.db.UpdateOnchainStatus(ctx, r.ID, statusFailed, err.Error())
+				a.persistOnchainStatus(ctx, r.ID, statusFailed, err.Error())
 			} else {
-				_ = a.db.UpdateOnchainStatus(ctx, r.ID, statusCompleted, "")
+				a.persistOnchainStatus(ctx, r.ID, statusCompleted, "")
 			}
 		case "failed":
-			_ = a.db.UpdateOnchainStatus(ctx, r.ID, statusFailed, "lsp ln invoice failed")
+			a.persistOnchainStatus(ctx, r.ID, statusFailed, "lsp ln invoice failed")
 		case "expired":
 			a.cancelLNInvoice(ctx, r.LspLNInvoice)
-			_ = a.db.UpdateOnchainStatus(ctx, r.ID, statusExpired, "lsp ln invoice expired")
+			a.persistOnchainStatus(ctx, r.ID, statusExpired, "lsp ln invoice expired")
 		}
 	}
 	return nil
@@ -1371,7 +1371,7 @@ func (a *API) monitorLightningReceive(ctx context.Context) error {
 	}
 	for _, r := range recs {
 		if r.RGBExpiresAt != nil && time.Now().UTC().After(*r.RGBExpiresAt) {
-			_ = a.db.UpdateLightningStatus(ctx, r.ID, statusExpired, "rgb invoice expired")
+			a.persistLightningStatus(ctx, r.ID, statusExpired, "rgb invoice expired")
 			continue
 		}
 
@@ -1391,9 +1391,9 @@ func (a *API) monitorLightningReceive(ctx context.Context) error {
 		case "succeeded", "settled":
 			a.startLightningDelivery(ctx, r)
 		case "failed":
-			_ = a.db.UpdateLightningStatus(ctx, r.ID, statusFailed, "rgb invoice failed")
+			a.persistLightningStatus(ctx, r.ID, statusFailed, "rgb invoice failed")
 		case "expired":
-			_ = a.db.UpdateLightningStatus(ctx, r.ID, statusExpired, "rgb invoice expired")
+			a.persistLightningStatus(ctx, r.ID, statusExpired, "rgb invoice expired")
 		}
 	}
 	return nil
@@ -1426,7 +1426,7 @@ func (a *API) startLightningDelivery(ctx context.Context, r LightningReceiveReco
 	// Initiated, not delivered: park it and read the outcome on a later tick.
 	attempts := r.DeliveryAttempts + 1
 	next := time.Now().UTC().Add(a.cfg.DeliveryRetryBaseDelay)
-	_ = a.db.UpdateLightningDelivery(ctx, r.ID, LightningDeliveryUpdate{
+	a.persistLightningDelivery(ctx, r.ID, LightningDeliveryUpdate{
 		Status:        statusDelivering,
 		PaymentHash:   &paymentHash,
 		Attempts:      &attempts,
@@ -1450,11 +1450,11 @@ func (a *API) pollLightningDelivery(ctx context.Context, r LightningReceiveRecor
 
 	switch status {
 	case node_client.PaymentStatusSucceeded:
-		_ = a.db.UpdateLightningDelivery(ctx, r.ID, LightningDeliveryUpdate{Status: statusCompleted})
+		a.persistLightningDelivery(ctx, r.ID, LightningDeliveryUpdate{Status: statusCompleted})
 	case node_client.PaymentStatusPending:
 		// In flight — never start a second payment for the same invoice.
 		next := time.Now().UTC().Add(a.cfg.DeliveryRetryBaseDelay)
-		_ = a.db.UpdateLightningDelivery(ctx, r.ID, LightningDeliveryUpdate{
+		a.persistLightningDelivery(ctx, r.ID, LightningDeliveryUpdate{
 			Status:        statusDelivering,
 			NextAttemptAt: &next,
 		})
@@ -1486,12 +1486,33 @@ func (a *API) retryLightningDelivery(ctx context.Context, r LightningReceiveReco
 
 	attempts := r.DeliveryAttempts + 1
 	next := time.Now().UTC().Add(a.deliveryBackoff(attempts))
-	_ = a.db.UpdateLightningDelivery(ctx, r.ID, LightningDeliveryUpdate{
+	a.persistLightningDelivery(ctx, r.ID, LightningDeliveryUpdate{
 		Status:        statusDelivering,
 		PaymentHash:   &paymentHash,
 		Attempts:      &attempts,
 		NextAttemptAt: &next,
 	})
+}
+
+// persistOnchainStatus records a status change and logs a failed write. A
+// dropped write leaves the record in its previous state, so the next cron tick
+// acts on it again - it must never be swallowed.
+func (a *API) persistOnchainStatus(ctx context.Context, id int64, status, reason string) {
+	if err := a.db.UpdateOnchainStatus(ctx, id, status, reason); err != nil {
+		log.Printf("onchain_send(%d): persist %s: %v", id, status, err)
+	}
+}
+
+func (a *API) persistLightningStatus(ctx context.Context, id int64, status, reason string) {
+	if err := a.db.UpdateLightningStatus(ctx, id, status, reason); err != nil {
+		log.Printf("lightning_receive(%d): persist %s: %v", id, status, err)
+	}
+}
+
+func (a *API) persistLightningDelivery(ctx context.Context, id int64, update LightningDeliveryUpdate) {
+	if err := a.db.UpdateLightningDelivery(ctx, id, update); err != nil {
+		log.Printf("lightning_receive(%d): persist delivery: %v", id, err)
+	}
 }
 
 // scheduleDeliveryRetry keeps the mapping in the working set with a backoff. The
