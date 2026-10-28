@@ -524,11 +524,15 @@ func (a *API) aPaySendOutboundPaymentJob(ctx context.Context, paymentHash string
 		if !errors.Is(err, errPaymentReportedFailed) {
 			return err
 		}
-		// Deliberately not fatal: returning an error would have the outbox retry every
-		// 15s with nothing to stop it, as this flow has no terminal transition out of
-		// outbound_pending and no claim-deadline guard. TODO: stop on the inbound
-		// HODL's claim deadline, then treat this as a failure.
-		log.Printf("async outbound payment %s: %v (continuing; delivery may not have happened)", paymentHash, err)
+		// The node confirmed the payment failed, so the receiver's HODL can
+		// never be claimed. Cancel the order: recording it as paid would make
+		// every later reader believe the delivery happened, and retrying the
+		// same settled-failed invoice would only spin the outbox.
+		if _, cancelErr := a.db.MarkAsyncRotatingInvoiceOutboundCancelled(jobCtx, paymentHash); cancelErr != nil {
+			return fmt.Errorf("persist outbound_cancelled: %w", cancelErr)
+		}
+		log.Printf("async outbound payment %s: %v (order cancelled)", paymentHash, err)
+		return nil
 	}
 
 	transitioned, err := a.db.MarkAsyncRotatingInvoiceOutboundPaid(jobCtx, paymentHash)
