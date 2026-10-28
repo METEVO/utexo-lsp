@@ -70,6 +70,11 @@ This service exposes API endpoints for two flows:
 - `POST /lightning_receive`
 - `POST /lightning_send`
 - `GET /lightning_send/{payment_hash}`
+- `POST /metevo/bootstrap`, `POST /metevo/buy`, `POST /metevo/claim`
+- `POST /metevo/invoice-request`, `POST /metevo/invoice-response`, `GET /metevo/invoice-inbox`, `POST /metevo/invoice-answer` (invoice relay between phones)
+- `POST /internal/async_order/new`, `/claimable`, `/payment_sent` (node webhooks)
+
+The `/metevo/*` and `/internal/async_order/*` routes require the shared bearer token (`APAY_BEARER_TOKEN`); the other routes are open and meant for a trusted network.
 
 ### `GET /get_info`
 
@@ -240,6 +245,27 @@ fulfilment.
 was refunded without waiting for CLTV expiry. They differ in whether the delivery
 leg may have been paid: `cancelled` is a delivery the node reported failed,
 `failed` is a relay refused before delivery (most often the claim deadline).
+
+#### `POST /metevo/buy` and `POST /metevo/claim`
+
+Buy USDm with Lightning: `buy { "usd_amount": 20 }` returns a BOLT11 invoice plus
+the USDm amount it covers; once that invoice is paid, `claim { "payment_hash",
+"rgb_invoice" }` verifies the settled inbound payment and executes `sendrgb` to
+the caller's RGB invoice. `/metevo/bootstrap` issues the served IFA asset and
+prints the `SUPPORTED_ASSET_IDS` line for the config.
+
+#### Invoice relay between phones (`/metevo/invoice-*`)
+
+Lets one wallet ask another for a USDm invoice without the LSP touching either
+node: the payer posts `invoice-request {recipient_pubkey, amount_usd}`, the
+recipient polls `invoice-inbox?pubkey=…`, creates the invoice **on its own node**
+only after its user accepts, and posts it back with `invoice-answer`; the payer
+polls `invoice-response {request_id}` for `pending | delivered | declined |
+expired`. Requests expire after `METEVO_INVOICE_EXPIRY` (default 10 minutes).
+
+The METEVO wallet app drives all four routes; a shell walkthrough of the
+two-phone demo lives in that repo at
+[docs/invoice-relay.md](https://github.com/METEVO/metevo-app/blob/main/docs/invoice-relay.md).
 
 #### `GET /.well-known/lnurlp/{username}`
 
